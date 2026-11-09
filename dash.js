@@ -597,6 +597,10 @@ export const DockDash = GObject.registerClass({
     }
 
     _requireVisibility() {
+        const dock = Docking.DockManager.getDefault()?.getDockByMonitor(this.monitorIndex);
+        if (dock?._monitor?.inFullscreen && !Docking.DockManager.settings.autohideInFullscreen)
+            return;
+
         this.requiresVisibility = true;
 
         if (this._requiresVisibilityTimeout)

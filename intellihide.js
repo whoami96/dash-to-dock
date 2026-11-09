@@ -2,6 +2,7 @@
 
 import {
     GLib,
+    GObject,
     Meta,
 } from './dependencies/gi.js';
 
@@ -81,6 +82,16 @@ export class Intellihide {
             'restacked',
             this._checkOverlap.bind(this),
         ], [
+            // when active focus window changes
+            global.display,
+            'notify::focus-window',
+            this._checkOverlap.bind(this),
+        ], [
+            // when fullscreen state changes
+            global.display,
+            'in-fullscreen-changed',
+            this._checkOverlap.bind(this),
+        ], [
             // when windows are alwasy on top, the focus window can change
             // without the windows being restacked. Thus monitor window focus change.
             Docking.DockManager.windowTracker,
@@ -126,24 +137,67 @@ export class Intellihide {
     }
 
     _windowCreated(display, metaWindow) {
-        this._addWindowSignals(metaWindow.get_compositor_private());
+        if (!metaWindow)
+            return;
+
+        const wa = metaWindow.get_compositor_private();
+        if (wa) {
+            this._addWindowSignals(wa);
+        } else {
+            GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                if (!this._isEnabled)
+                    return GLib.SOURCE_REMOVE;
+                const actor = metaWindow.get_compositor_private();
+                if (actor)
+                    this._addWindowSignals(actor);
+                this._checkOverlap();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
         this._doCheckOverlap();
     }
 
     _addWindowSignals(wa) {
-        if (!this._handledWindow(wa))
+        if (!wa || !this._handledWindow(wa))
             return;
 
-        this._trackedWindows.set(wa, [
-            wa.connect('notify::allocation', () => this._checkOverlap()),
-            wa.connect('destroy', () => this._removeWindowSignals(wa)),
-        ]);
+        if (this._trackedWindows.has(wa))
+            return;
+
+        const metaWindow = wa.get_meta_window();
+        const connections = [
+            [wa, 'notify::allocation', () => this._checkOverlap()],
+            [wa, 'destroy', () => this._removeWindowSignals(wa)],
+        ];
+
+        if (metaWindow) {
+            const onPropChanged = () => this._checkOverlap();
+            connections.push(
+                [metaWindow, 'notify::maximized-horizontally', onPropChanged],
+                [metaWindow, 'notify::maximized-vertically', onPropChanged],
+                [metaWindow, 'notify::fullscreen', onPropChanged],
+                [metaWindow, 'notify::minimized', onPropChanged],
+                [metaWindow, 'position-changed', onPropChanged],
+                [metaWindow, 'size-changed', onPropChanged],
+                [metaWindow, 'workspace-changed', onPropChanged],
+            );
+        }
+
+        const signalIds = [];
+        connections.forEach(([obj, sig, cb]) => {
+            signalIds.push([obj, obj.connect(sig, cb)]);
+        });
+
+        this._trackedWindows.set(wa, signalIds);
     }
 
     _removeWindowSignals(wa) {
         const signalIds = this._trackedWindows.get(wa);
         if (signalIds) {
-            signalIds.forEach(id => wa.disconnect(id));
+            signalIds.forEach(([obj, id]) => {
+                if (obj && GObject.signal_handler_is_connected(obj, id))
+                    obj.disconnect(id);
+            });
             this._trackedWindows.delete(wa);
         }
     }
@@ -191,6 +245,11 @@ export class Intellihide {
         if (!this._isEnabled || !this._targetBox)
             return;
 
+        global.get_window_actors().forEach(wa => {
+            if (!this._trackedWindows.has(wa))
+                this._addWindowSignals(wa);
+        });
+
         let overlaps = OverlapStatus.FALSE;
         let windows = global.get_window_actors().filter(wa => this._handledWindow(wa));
 
@@ -203,9 +262,12 @@ export class Intellihide {
              */
 
             let topWindow = null;
+            const currentWorkspace = global.workspace_manager.get_active_workspace();
             for (let i = windows.length - 1; i >= 0; i--) {
                 const metaWin = windows[i].get_meta_window();
-                if (metaWin.get_monitor() === this._monitorIndex) {
+                if (metaWin && metaWin.get_monitor() === this._monitorIndex &&
+                    (metaWin.is_on_all_workspaces() || metaWin.get_workspace() === currentWorkspace) &&
+                    metaWin.showing_on_its_workspace() && !metaWin.minimized) {
                     topWindow = metaWin;
                     break;
                 }
@@ -250,9 +312,16 @@ export class Intellihide {
     // Optionally skip windows of other applications
     _intellihideFilterInteresting(wa) {
         const metaWin = wa.get_meta_window();
-        const currentWorkspace = global.workspace_manager.get_active_workspace_index();
+        if (!metaWin || metaWin.minimized)
+            return false;
+
+        const currentWorkspace = global.workspace_manager.get_active_workspace();
         const workspace = metaWin.get_workspace();
-        const workspaceIndex = workspace.index();
+        const onCurrentWorkspace = metaWin.is_on_all_workspaces() ||
+            (workspace && workspace === currentWorkspace);
+
+        if (!onCurrentWorkspace || !metaWin.showing_on_its_workspace())
+            return false;
 
         // Depending on the intellihide mode, exclude non-relevent windows
         switch (Docking.DockManager.settings.intellihideMode) {
@@ -300,10 +369,7 @@ export class Intellihide {
             break;
         }
 
-        if (workspaceIndex === currentWorkspace && metaWin.showing_on_its_workspace())
-            return true;
-        else
-            return false;
+        return true;
     }
 
     // Filter windows by type

@@ -792,6 +792,14 @@ const DockedDash = GObject.registerClass({
             return;
         }
 
+        // Respect autohide-in-fullscreen setting
+        if (this._monitor?.inFullscreen && !DockManager.settings.autohideInFullscreen) {
+            this._ignoreHover = true;
+            this._removeAnimations();
+            this._animateOut(DockManager.settings.animationTime, 0);
+            return;
+        }
+
         if (Main.overview.visibleTarget)
             return;
 
@@ -858,15 +866,20 @@ const DockedDash = GObject.registerClass({
     }
 
     _hoverChanged() {
-        if (!this._ignoreHover) {
-            // Skip if dock is not in autohide mode for instance because it is shown
-            // by intellihide.
-            if (this.autohideEnabled) {
-                if (this._box.hover || Main.overview.visible)
-                    this.showDock();
-                else
-                    this.hideDock();
-            }
+        // When intellihide is enabled, only autohide on hover if a window is overlapping
+        const shouldAutohide = this.autohideEnabled &&
+            (!this.intellihideEnabled || this._intellihide.getOverlapStatus());
+
+        if (shouldAutohide) {
+            if (this._box.hover || Main.overview.visible)
+                this.showDock();
+            else
+                this.hideDock();
+        } else if (!this._ignoreHover && this.autohideEnabled) {
+            if (this._box.hover || Main.overview.visible)
+                this.showDock();
+            else
+                this.hideDock();
         }
     }
 
@@ -1275,7 +1288,10 @@ const DockedDash = GObject.registerClass({
         ], [
             global.display,
             'in-fullscreen-changed',
-            () => this._updateBarrier(),
+            () => {
+                this._updateBarrier();
+                this.updateDashVisibility();
+            },
         ]);
 
         this._resetPosition();
