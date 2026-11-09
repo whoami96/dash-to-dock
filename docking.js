@@ -856,6 +856,7 @@ const DockedDash = GObject.registerClass({
     _onMenuOpened() {
         this._ignoreHover = true;
         this._menuOpened = true;
+        this.showDock();
         this.updateDashVisibility();
     }
 
@@ -866,6 +867,9 @@ const DockedDash = GObject.registerClass({
     }
 
     _hoverChanged() {
+        if (this._menuOpened || this._dragInProgress)
+            return;
+
         // When intellihide is enabled, only autohide on hover if a window is overlapping
         const shouldAutohide = this.autohideEnabled &&
             (!this.intellihideEnabled || this._intellihide.getOverlapStatus());
@@ -900,6 +904,9 @@ const DockedDash = GObject.registerClass({
     }
 
     hideDock() {
+        if (this._menuOpened || this._dragInProgress)
+            return;
+
         // If no hiding animation is running or queued
         if ((this.dockState === State.SHOWN) || (this.dockState === State.SHOWING)) {
             const {settings} = DockManager;
@@ -1417,12 +1424,14 @@ const DockedDash = GObject.registerClass({
     }
 
     _onDragStart() {
+        this._dragInProgress = true;
         this._oldIgnoreHover = this._ignoreHover;
         this._ignoreHover = true;
         this._animateIn(DockManager.settings.animationTime, 0);
     }
 
     _onDragEnd() {
+        delete this._dragInProgress;
         if (this._oldIgnoreHover !== undefined) {
             this._ignoreHover = this._oldIgnoreHover;
             delete this._oldIgnoreHover;
