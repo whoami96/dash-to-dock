@@ -76,6 +76,11 @@ export class Intellihide {
             'window-created',
             this._windowCreated.bind(this),
         ], [
+            // workspace switch
+            global.workspace_manager,
+            'workspace-switched',
+            this._checkOverlap.bind(this),
+        ], [
             // triggered for instance when the window list order changes,
             // included when the workspace is switched
             global.display,

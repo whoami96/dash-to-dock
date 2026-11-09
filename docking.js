@@ -1135,7 +1135,8 @@ const DockedDash = GObject.registerClass({
      * handler for mouse pressure sensed
      */
     _onPressureSensed() {
-        if (Main.overview.visibleTarget)
+        if (Main.overview.visibleTarget ||
+            Main.modalCount > (Main.overview.visible ? 1 : 0))
             return;
 
         if (this._triggerTimeoutId)
