@@ -76,11 +76,6 @@ export class Intellihide {
             'window-created',
             this._windowCreated.bind(this),
         ], [
-            // workspace switch
-            global.workspace_manager,
-            'workspace-switched',
-            this._checkOverlap.bind(this),
-        ], [
             // triggered for instance when the window list order changes,
             // included when the workspace is switched
             global.display,
@@ -182,8 +177,6 @@ export class Intellihide {
                 [metaWindow, 'notify::maximized-vertically', onPropChanged],
                 [metaWindow, 'notify::fullscreen', onPropChanged],
                 [metaWindow, 'notify::minimized', onPropChanged],
-                [metaWindow, 'position-changed', onPropChanged],
-                [metaWindow, 'size-changed', onPropChanged],
                 [metaWindow, 'workspace-changed', onPropChanged],
             );
         }
@@ -249,11 +242,6 @@ export class Intellihide {
     _doCheckOverlap() {
         if (!this._isEnabled || !this._targetBox)
             return;
-
-        global.get_window_actors().forEach(wa => {
-            if (!this._trackedWindows.has(wa))
-                this._addWindowSignals(wa);
-        });
 
         let overlaps = OverlapStatus.FALSE;
         let windows = global.get_window_actors().filter(wa => this._handledWindow(wa));
